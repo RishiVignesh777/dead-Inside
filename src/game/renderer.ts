@@ -160,7 +160,7 @@ export class InsideRenderer {
     this.renderAmbientRainAndDust(ctx, w, h);
 
     // 18. Film Grain & Vignette & Cinematic Letterbox
-    this.renderCinematicPostProcess(ctx, w, h, settings);
+    this.renderCinematicPostProcess(ctx, w, h, settings, player);
 
     ctx.restore();
   }
@@ -602,6 +602,13 @@ export class InsideRenderer {
     ctx.ellipse(0, 0, 16, 4, 0, 0, Math.PI * 2);
     ctx.fill();
 
+    // Respawn invulnerability grace flicker
+    if (player.invulnerableTimer && player.invulnerableTimer > 0) {
+      if (Math.floor(player.invulnerableTimer / 4) % 2 === 0) {
+        ctx.globalAlpha = 0.55;
+      }
+    }
+
     // Procedural animation parameters
     const walkCycle = player.animTimer;
     const isMoving = Math.abs(player.vx) > 0.1;
@@ -900,6 +907,130 @@ export class InsideRenderer {
 
   // Checkpoint & Exit visuals
   private renderExitAndCheckpoints(ctx: CanvasRenderingContext2D, level: LevelData, gameTime: number) {
+    // 1. Industrial Respawn Point Stations
+    if (level.checkpoints) {
+      for (let i = 0; i < level.checkpoints.length; i++) {
+        const cp = level.checkpoints[i];
+        const isReached = cp.reached;
+        const groundY = cp.y + 46; // platform top level
+        const postTopY = cp.y - 12;
+        const lampX = cp.x + 8;
+        const lampY = postTopY + 2;
+
+        ctx.save();
+
+        // Ground mounting base plate
+        ctx.fillStyle = '#0f1418';
+        ctx.fillRect(cp.x - 8, groundY - 4, 16, 4);
+
+        // Dark steel vertical conduit pipe
+        ctx.strokeStyle = '#182126';
+        ctx.lineWidth = 3.5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(cp.x, groundY);
+        ctx.lineTo(cp.x, postTopY);
+        // Arched gooseneck arm towards lantern
+        ctx.quadraticCurveTo(cp.x, postTopY - 10, lampX, lampY);
+        ctx.stroke();
+
+        // Industrial junction box with rivets
+        ctx.fillStyle = '#11171b';
+        ctx.fillRect(cp.x - 7, cp.y + 12, 14, 18);
+        ctx.strokeStyle = '#222d34';
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(cp.x - 7, cp.y + 12, 14, 18);
+
+        // Status indicator diode on junction box
+        if (isReached) {
+          ctx.fillStyle = '#2ed573';
+          ctx.beginPath();
+          ctx.arc(cp.x, cp.y + 18, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Green diode corona
+          ctx.fillStyle = 'rgba(46, 213, 115, 0.35)';
+          ctx.beginPath();
+          ctx.arc(cp.x, cp.y + 18, 5, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Unreached standby blinking amber indicator
+          const pulse = (Math.sin(gameTime * 0.005 + i * 1.5) + 1) * 0.5;
+          ctx.fillStyle = `rgba(255, 165, 2, ${0.25 + pulse * 0.55})`;
+          ctx.beginPath();
+          ctx.arc(cp.x, cp.y + 18, 1.8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Hanging Cage Lantern
+        // Lantern cap
+        ctx.fillStyle = '#1c2429';
+        ctx.beginPath();
+        ctx.arc(lampX, lampY, 6, Math.PI, 0);
+        ctx.fill();
+
+        // Wire cage
+        ctx.strokeStyle = '#2d3748';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(lampX - 5, lampY, 10, 10);
+        ctx.beginPath();
+        ctx.moveTo(lampX, lampY);
+        ctx.lineTo(lampX, lampY + 10);
+        ctx.stroke();
+
+        if (isReached) {
+          // Warm incandescent radial bloom from active respawn point
+          const breath = 1 + Math.sin(gameTime * 0.003 + i) * 0.08;
+          const bloom = ctx.createRadialGradient(lampX, lampY + 5, 2, lampX, lampY + 5, 36 * breath);
+          bloom.addColorStop(0, 'rgba(255, 214, 130, 0.65)');
+          bloom.addColorStop(0.35, 'rgba(243, 156, 18, 0.22)');
+          bloom.addColorStop(0.7, 'rgba(211, 84, 0, 0.08)');
+          bloom.addColorStop(1, 'rgba(0, 0, 0, 0)');
+          ctx.fillStyle = bloom;
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + 5, 36 * breath, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Bright glowing filament core
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + 5, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Soft ground puddle specular highlight
+          const floorGlow = ctx.createRadialGradient(lampX, groundY, 1, lampX, groundY, 28);
+          floorGlow.addColorStop(0, 'rgba(243, 156, 18, 0.25)');
+          floorGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+          ctx.fillStyle = floorGlow;
+          ctx.beginPath();
+          ctx.ellipse(lampX, groundY, 28, 4, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          // Standby dim filament
+          const standbyGlow = ctx.createRadialGradient(lampX, lampY + 5, 1, lampX, lampY + 5, 14);
+          standbyGlow.addColorStop(0, 'rgba(230, 126, 34, 0.28)');
+          standbyGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+          ctx.fillStyle = standbyGlow;
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + 5, 14, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#f39c12';
+          ctx.beginPath();
+          ctx.arc(lampX, lampY + 5, 1.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Monospace stencil badge on post
+        ctx.fillStyle = isReached ? '#2ed573' : '#4a5568';
+        ctx.font = '7px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(isReached ? 'RESPAWN' : 'CP', cp.x, groundY + 12);
+
+        ctx.restore();
+      }
+    }
+
     // Exit Airlock / Drainage Culvert
     const ex = level.exitPoint;
     ctx.save();
@@ -974,8 +1105,26 @@ export class InsideRenderer {
     ctx: CanvasRenderingContext2D,
     w: number,
     h: number,
-    settings: GameSettings
+    settings: GameSettings,
+    player?: Player
   ) {
+    // 0. Death Blackout / Respawn Vignette
+    if (player && player.isDead) {
+      ctx.save();
+      const deathProgress = Math.min(1, player.deathTimer / 38);
+      ctx.fillStyle = `rgba(8, 6, 6, ${deathProgress * 0.92})`;
+      ctx.fillRect(0, 0, w, h);
+
+      // Centered atmospheric respawn prompt text
+      if (deathProgress > 0.4) {
+        ctx.fillStyle = `rgba(220, 225, 230, ${(deathProgress - 0.4) * 1.6})`;
+        ctx.font = '11px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.letterSpacing = '0.25em';
+        ctx.fillText('RESPAWNING AT CHECKPOINT', w / 2, h / 2);
+      }
+      ctx.restore();
+    }
     // 1. Deep cinematic vignette
     ctx.save();
     const vigGrad = ctx.createRadialGradient(w / 2, h / 2, h * 0.38, w / 2, h / 2, Math.max(w, h) * 0.72);

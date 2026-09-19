@@ -15,7 +15,7 @@ import {
   SteamValve,
 } from '../types';
 import { soundEngine } from '../audio/soundEngine';
-import { checkAABB, pointInBox, resolvePlayerCollisions, updatePushables, findAdjacentPushable, GRAVITY, TERMINAL_VELOCITY } from '../game/physics';
+import { checkAABB, pointInBox, resolvePlayerCollisions, updatePushables, findAdjacentPushable, GRAVITY, TERMINAL_VELOCITY, BOY_RUN_SPEED } from '../game/physics';
 import { updateDogAI } from '../game/dogAI';
 import { InsideRenderer } from '../game/renderer';
 import { LEVELS } from '../game/levels';
@@ -24,7 +24,7 @@ interface GameCanvasProps {
   currentChapterId: number;
   onChapterComplete: (nextChapterId: number) => void;
   onPlayerCaught: () => void;
-  onCheckpointReached: (checkpointIndex: number) => void;
+  onCheckpointReached: (checkpointIndex: number, name?: string) => void;
   settings: GameSettings;
   isPaused: boolean;
   onInteractPromptChange: (prompt: string | null) => void;
@@ -79,6 +79,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   });
 
   const dogsRef = useRef<Dog[]>([]);
+  const initialDogsRef = useRef<Dog[]>([]);
   const pushablesRef = useRef<PushableBox[]>([]);
   const valvesRef = useRef<SteamValve[]>([]);
   const steamJetsRef = useRef<SteamJet[]>([]);
@@ -120,9 +121,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       noiseLevel: 0,
       headTurnAngle: 0,
       breathRate: 1,
+      invulnerableTimer: 0,
     };
 
     dogsRef.current = currentLevelRef.current.dogs;
+    initialDogsRef.current = JSON.parse(JSON.stringify(currentLevelRef.current.dogs));
     pushablesRef.current = currentLevelRef.current.pushables;
     valvesRef.current = currentLevelRef.current.valves;
     steamJetsRef.current = currentLevelRef.current.steamJets;
@@ -148,18 +151,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     playerRef.current.deathTimer = 0;
     playerRef.current.grabbedBoxId = null;
     playerRef.current.isClimbing = false;
+    playerRef.current.invulnerableTimer = 80; // Safe grace period so hounds don't instantly bite
 
-    // Reset dog patrols in the vicinity
+    // Cleanly restore dogs back to their starting patrol points & calm state
     for (const dog of dogsRef.current) {
-      dog.state = 'patrol';
-      dog.eyeColor = 'amber';
-      dog.eyeIntensity = 0.6;
-      dog.x = dog.patrolMinX + 20;
-      dog.vx = 0;
+      const init = initialDogsRef.current.find((d) => d.id === dog.id);
+      if (init) {
+        dog.x = init.x;
+        dog.y = init.y;
+        dog.vx = 0;
+        dog.vy = 0;
+        dog.facing = init.facing;
+        dog.state = 'patrol';
+        dog.patrolDir = init.patrolDir;
+        dog.eyeColor = 'amber';
+        dog.eyeIntensity = 0.6;
+        dog.alertTimer = 0;
+        dog.searchTimer = 0;
+        dog.blindedTimer = 0;
+        dog.barkCooldown = 0;
+      }
     }
 
     if (rendererRef.current) {
-      rendererRef.current.triggerShake(4, 8);
+      rendererRef.current.triggerShake(4, 10);
     }
   };
 
@@ -227,10 +242,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         // Death state handle
         if (player.isDead) {
           player.deathTimer++;
-          if (player.deathTimer > 75) {
+          if (player.deathTimer > 42) {
             respawnAtCheckpoint();
           }
         } else {
+          // Decrement respawn grace timer
+          if (player.invulnerableTimer && player.invulnerableTimer > 0) {
+            player.invulnerableTimer--;
+          }
           // --- CONTROLS ---
           const moveLeft = Boolean(keys['KeyA'] || keys['ArrowLeft'] || mobile.left);
           const moveRight = Boolean(keys['KeyD'] || keys['ArrowRight'] || mobile.right);
@@ -339,7 +358,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           } else {
             // Normal crouching / running logic
             player.isCrouching = crouchKey && player.isGrounded && !player.isClimbing;
-            player.isRunning = !player.isCrouching && (sprintKey || Math.abs(player.vx) > 3.6);
+            player.isRunning = !player.isCrouching && (sprintKey || Math.abs(player.vx) > 1.8);
 
             // Calculate noise emitted by boy
             if (!player.isGrounded) {
@@ -401,8 +420,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               }
             } else {
               // Normal Horizontal Locomotion
-              const targetSpeed = player.isCrouching ? 1.7 : (player.isRunning ? 4.8 : 3.0);
-              const accel = player.isGrounded ? 0.35 : 0.18;
+              const targetSpeed = player.isCrouching ? 1.8 : BOY_RUN_SPEED;
+              const accel = player.isGrounded ? 0.42 : 0.22;
 
               if (moveLeft) {
                 player.vx = Math.max(-targetSpeed, player.vx - accel);
@@ -617,7 +636,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               dt
             );
 
-            if (caughtPlayer) {
+            if (caughtPlayer && (!player.invulnerableTimer || player.invulnerableTimer <= 0)) {
               player.isDead = true;
               player.deathTimer = 0;
               rendererRef.current.triggerShake(14, 30);
@@ -647,14 +666,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           const tensionProximity = Math.max(0, 1 - nearestDogDist / 420);
           soundEngine.setTension(anyDogAlerted ? 1.0 : tensionProximity * 0.7);
 
-          // Checkpoints
+          // Checkpoints (Respawn points)
           for (let i = 0; i < level.checkpoints.length; i++) {
             const cp = level.checkpoints[i];
-            if (!cp.reached && Math.abs(player.x - cp.x) < 50 && Math.abs(player.y - cp.y) < 90) {
+            if (!cp.reached && Math.abs(player.x - cp.x) < 55 && Math.abs(player.y - cp.y) < 90) {
               cp.reached = true;
               lastActiveCheckpointRef.current = { x: cp.x, y: cp.y };
               soundEngine.playCheckpointChord();
-              onCheckpointReached(i + 1);
+              onCheckpointReached(i + 1, cp.name);
+
+              // Burst of warm incandescent sparks when reaching new respawn point
+              for (let s = 0; s < 12; s++) {
+                particlesRef.current.push({
+                  x: cp.x + (Math.random() - 0.5) * 16,
+                  y: cp.y + 10 + (Math.random() - 0.5) * 20,
+                  vx: (Math.random() - 0.5) * 2.4,
+                  vy: -1.6 - Math.random() * 2.5,
+                  size: 2 + Math.random() * 2.5,
+                  alpha: 0.95,
+                  life: 0,
+                  maxLife: 35,
+                  color: '#ffbe76',
+                  type: 'spark',
+                });
+              }
             }
           }
 

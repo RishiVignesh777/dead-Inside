@@ -83,11 +83,11 @@ export default function App() {
     // Checkpoint reset is automatically performed with cinematic rewind in GameCanvas
   }, []);
 
-  const handleCheckpointReached = useCallback((index: number) => {
-    setCheckpointToast(`CHECKPOINT ${index} LOGGED`);
+  const handleCheckpointReached = useCallback((index: number, name?: string) => {
+    setCheckpointToast(name ? `RESPAWN POINT: ${name.toUpperCase()}` : `RESPAWN POINT ${index} LOGGED`);
     setTimeout(() => {
       setCheckpointToast(null);
-    }, 2200);
+    }, 2400);
   }, []);
 
   const handleRestartCheckpoint = useCallback(() => {

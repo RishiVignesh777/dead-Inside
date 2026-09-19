@@ -2,6 +2,9 @@ import { Box2D, Player, Platform, PushableBox, SteamJet, Vector2D } from '../typ
 
 export const GRAVITY = 0.55;
 export const TERMINAL_VELOCITY = 14;
+// Boy and Dog speeds are synchronized to be exactly equal
+export const DOG_CHASE_SPEED = 4.2;
+export const BOY_RUN_SPEED = 4.2;
 
 export function checkAABB(a: Box2D, b: Box2D): boolean {
   return (

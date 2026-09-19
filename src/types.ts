@@ -32,6 +32,7 @@ export interface Player {
   noiseLevel: number; // 0 to 1
   headTurnAngle: number; // angle looking back at threat
   breathRate: number;
+  invulnerableTimer?: number;
 }
 
 export interface Dog {
@@ -144,6 +145,7 @@ export interface Checkpoint {
   x: number;
   y: number;
   reached: boolean;
+  name?: string;
 }
 
 export interface Particle {

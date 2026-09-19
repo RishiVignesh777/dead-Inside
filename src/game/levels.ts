@@ -129,8 +129,11 @@ export const LEVELS: LevelData[] = [
     ],
     pressurePlates: [],
     checkpoints: [
-      { id: 'cp1', x: 80, y: 440, reached: true },
-      { id: 'cp2', x: 1280, y: 460, reached: false },
+      { id: 'cp1_1', x: 80, y: 440, reached: true, name: 'Canal Dock' },
+      { id: 'cp1_2', x: 440, y: 440, reached: false, name: 'Pit Overlook' },
+      { id: 'cp1_3', x: 740, y: 360, reached: false, name: 'High Catwalk' },
+      { id: 'cp1_4', x: 1320, y: 460, reached: false, name: 'Ruins Steam Valve' },
+      { id: 'cp1_5', x: 1840, y: 380, reached: false, name: 'Upper Bastion' },
     ],
     hidingSpots: [
       // Shadow behind iron rebar
@@ -330,8 +333,10 @@ export const LEVELS: LevelData[] = [
       { id: 'plate_foundry', x: 1750, y: 524, w: 54, h: 8, isPressed: false, targetElevatorId: 'piston_lift_1' },
     ],
     checkpoints: [
-      { id: 'cp2_1', x: 90, y: 460, reached: true },
-      { id: 'cp2_2', x: 1370, y: 470, reached: false },
+      { id: 'cp2_1', x: 90, y: 460, reached: true, name: 'Foundry Entry' },
+      { id: 'cp2_2', x: 440, y: 350, reached: false, name: 'Trench Overpass' },
+      { id: 'cp2_3', x: 1370, y: 470, reached: false, name: 'Piston Chamber' },
+      { id: 'cp2_4', x: 1960, y: 400, reached: false, name: 'Blast Gate Catwalk' },
     ],
     hidingSpots: [
       { x: 580, y: 460, w: 100, h: 100 },
@@ -526,8 +531,10 @@ export const LEVELS: LevelData[] = [
       { id: 'plate_crane', x: 1680, y: 532, w: 56, h: 8, isPressed: false, targetElevatorId: 'crane_bridge' },
     ],
     checkpoints: [
-      { id: 'cp3_1', x: 80, y: 470, reached: true },
-      { id: 'cp3_2', x: 1480, y: 480, reached: false },
+      { id: 'cp3_1', x: 80, y: 470, reached: true, name: 'Siphon Gantry' },
+      { id: 'cp3_2', x: 520, y: 330, reached: false, name: 'Crane Girder' },
+      { id: 'cp3_3', x: 1480, y: 470, reached: false, name: 'Acid Chasm Basin' },
+      { id: 'cp3_4', x: 2060, y: 470, reached: false, name: 'Counterweight Bridge' },
     ],
     hidingSpots: [
       { x: 380, y: 470, w: 90, h: 60 },
@@ -714,8 +721,11 @@ export const LEVELS: LevelData[] = [
       { id: 'plate_final', x: 2200, y: 512, w: 60, h: 8, isPressed: false, targetElevatorId: 'final_gate_lift' },
     ],
     checkpoints: [
-      { id: 'cp4_1', x: 90, y: 470, reached: true },
-      { id: 'cp4_2', x: 1890, y: 460, reached: false },
+      { id: 'cp4_1', x: 90, y: 470, reached: true, name: 'Conduit Entry' },
+      { id: 'cp4_2', x: 500, y: 470, reached: false, name: 'Runway Approach' },
+      { id: 'cp4_3', x: 1040, y: 360, reached: false, name: 'Mid-Runway Gantry' },
+      { id: 'cp4_4', x: 1920, y: 460, reached: false, name: 'Rail Yard Threshold' },
+      { id: 'cp4_5', x: 2780, y: 450, reached: false, name: 'Rail Car Freight' },
     ],
     hidingSpots: [
       { x: 420, y: 470, w: 90, h: 60 },

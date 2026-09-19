@@ -1,5 +1,5 @@
 import { Dog, Player, Platform, SteamJet, Box2D, Vector2D } from '../types';
-import { checkAABB, hasClearLineOfSight, GRAVITY, TERMINAL_VELOCITY } from './physics';
+import { checkAABB, hasClearLineOfSight, GRAVITY, TERMINAL_VELOCITY, DOG_CHASE_SPEED } from './physics';
 import { soundEngine } from '../audio/soundEngine';
 
 export function updateDogAI(
@@ -208,7 +208,7 @@ export function updateDogAI(
       // Sprint velocity (fast, relentless!)
       const chaseDir = dxToPlayer > 0 ? 1 : -1;
       dog.facing = chaseDir;
-      dog.vx = chaseDir * 4.4;
+      dog.vx = chaseDir * DOG_CHASE_SPEED;
 
       // Jump over small obstacles or towards player if player is elevated
       if (Math.abs(dxToPlayer) < 140 && dyToPlayer < -30 && dog.vy === 0) {
