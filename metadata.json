@@ -1,0 +1,6 @@
+{
+  "name": "Industrial Stealth Escape",
+  "description": "An atmospheric 2.5D stealth platformer inspired by Playdead's INSIDE featuring steam-powered physics contraptions and mechanical hound evasion.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
