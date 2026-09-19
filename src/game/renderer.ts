@@ -647,7 +647,17 @@ export class InsideRenderer {
     ctx.stroke();
 
     // --- TORSO / RED TUNIC (INSIDE's signature muted red shirt) ---
-    const leanForward = player.isRunning ? 0.25 : (player.isCrouching ? 0.35 : 0.05);
+    let leanForward = player.isRunning ? 0.25 : (player.isCrouching ? 0.35 : 0.05);
+    if (player.grabbedBoxId) {
+      const forwardMotion = player.facing * player.vx;
+      if (forwardMotion > 0.08) {
+        leanForward = 0.28; // Bracing forward to push heavy crate
+      } else if (forwardMotion < -0.08) {
+        leanForward = -0.22; // Leaning back to pull heavy crate
+      } else {
+        leanForward = 0.10; // Neutral grip
+      }
+    }
     ctx.save();
     ctx.translate(0, -22 + crouchY + bodyBob);
     ctx.rotate(leanForward);
@@ -690,11 +700,21 @@ export class InsideRenderer {
     ctx.lineWidth = 3.5;
 
     if (player.grabbedBoxId) {
-      // Both hands gripping the crate forward
+      // Both hands firmly gripping the crate forward
       ctx.beginPath();
       ctx.moveTo(-2, -14);
-      ctx.lineTo(14, -10);
+      ctx.lineTo(16, -10);
       ctx.stroke();
+
+      // Second arm for physical depth
+      ctx.save();
+      ctx.strokeStyle = '#0e1315';
+      ctx.lineWidth = 2.8;
+      ctx.beginPath();
+      ctx.moveTo(1, -12);
+      ctx.lineTo(15, -6);
+      ctx.stroke();
+      ctx.restore();
     } else if (player.isClimbing) {
       // Reaching up to chain
       ctx.beginPath();

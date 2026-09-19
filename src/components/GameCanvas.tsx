@@ -15,7 +15,7 @@ import {
   SteamValve,
 } from '../types';
 import { soundEngine } from '../audio/soundEngine';
-import { checkAABB, pointInBox, resolvePlayerCollisions, updatePushables, GRAVITY, TERMINAL_VELOCITY } from '../game/physics';
+import { checkAABB, pointInBox, resolvePlayerCollisions, updatePushables, findAdjacentPushable, GRAVITY, TERMINAL_VELOCITY } from '../game/physics';
 import { updateDogAI } from '../game/dogAI';
 import { InsideRenderer } from '../game/renderer';
 import { LEVELS } from '../game/levels';
@@ -89,6 +89,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const particlesRef = useRef<Particle[]>([]);
   const lastActiveCheckpointRef = useRef<{ x: number; y: number }>({ x: 100, y: 350 });
   const animFrameIdRef = useRef<number>(0);
+  const prevInteractKeyRef = useRef<boolean>(false);
+  const interactPressTimeRef = useRef<number>(0);
+  const dragSoundTimerRef = useRef<number>(0);
 
   // Initialize level
   const loadLevel = (levelId: number) => {
@@ -229,127 +232,227 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
         } else {
           // --- CONTROLS ---
-          const moveLeft = keys['KeyA'] || keys['ArrowLeft'] || mobile.left;
-          const moveRight = keys['KeyD'] || keys['ArrowRight'] || mobile.right;
-          const jumpKey = keys['KeyW'] || keys['ArrowUp'] || keys['Space'] || mobile.jump;
-          const crouchKey = keys['KeyS'] || keys['ArrowDown'] || keys['KeyC'] || keys['ControlLeft'] || mobile.crouch;
-          const sprintKey = keys['ShiftLeft'] || keys['ShiftRight'];
-          const interactKey = keys['KeyE'] || keys['KeyF'] || keys['Enter'] || mobile.interact;
+          const moveLeft = Boolean(keys['KeyA'] || keys['ArrowLeft'] || mobile.left);
+          const moveRight = Boolean(keys['KeyD'] || keys['ArrowRight'] || mobile.right);
+          const jumpKey = Boolean(keys['KeyW'] || keys['ArrowUp'] || keys['Space'] || mobile.jump);
+          const crouchKey = Boolean(keys['KeyS'] || keys['ArrowDown'] || keys['KeyC'] || keys['ControlLeft'] || mobile.crouch);
+          const sprintKey = Boolean(keys['ShiftLeft'] || keys['ShiftRight']);
+          const interactKey = Boolean(keys['KeyE'] || keys['KeyF'] || keys['Enter'] || mobile.interact);
 
-          player.isCrouching = crouchKey && player.isGrounded && !player.isClimbing;
-          player.isRunning = !player.isCrouching && (sprintKey || Math.abs(player.vx) > 3.6);
-
-          // Calculate noise emitted by boy
-          if (!player.isGrounded) {
-            player.noiseLevel = 0.15;
-          } else if (player.isCrouching) {
-            player.noiseLevel = Math.abs(player.vx) > 0.1 ? 0.06 : 0.01;
-          } else if (player.isRunning) {
-            player.noiseLevel = 0.75;
-          } else if (Math.abs(player.vx) > 0.1) {
-            player.noiseLevel = 0.3;
-          } else {
-            player.noiseLevel = 0.02;
+          const justPressedInteract = interactKey && !prevInteractKeyRef.current;
+          const justReleasedInteract = !interactKey && prevInteractKeyRef.current;
+          if (justPressedInteract) {
+            interactPressTimeRef.current = performance.now();
           }
 
-          // Chain Climbing Check
-          let nearChain: HangingChain | null = null;
-          for (const chain of chainsRef.current) {
-            const chainBottomY = chain.topY + chain.length;
-            if (
-              Math.abs(player.x + player.w / 2 - chain.topX) < 28 &&
-              player.y >= chain.topY - 20 &&
-              player.y <= chainBottomY + 20
-            ) {
-              nearChain = chain;
-              break;
-            }
-          }
+          // 1. Grab State Machine (Initiation, Hold/Toggle, and Release)
+          if (player.grabbedBoxId) {
+            player.isCrouching = false;
+            player.isRunning = false;
 
-          if (nearChain && (jumpKey || crouchKey) && !player.isGrounded) {
-            player.isClimbing = true;
-            player.climbTargetId = nearChain.id;
-          }
-
-          if (player.isClimbing && nearChain) {
-            player.vx = 0;
-            player.vy = 0;
-            player.x = nearChain.topX - player.w / 2;
-
-            if (jumpKey) {
-              player.y -= 2.8;
-              if (player.y < nearChain.topY) player.y = nearChain.topY;
-            } else if (crouchKey) {
-              player.y += 2.8;
-              if (player.y > nearChain.topY + nearChain.length - 10) {
-                player.isClimbing = false;
+            if (justPressedInteract) {
+              // Pressing E again releases the crate
+              player.grabbedBoxId = null;
+              soundEngine.playFootstep(false, 'metal');
+            } else if (justReleasedInteract) {
+              // Releasing E after a deliberate hold (> 280ms) lets go of the crate
+              const holdDuration = performance.now() - interactPressTimeRef.current;
+              if (holdDuration > 280) {
+                player.grabbedBoxId = null;
               }
-            }
-
-            // Swing chain with left/right
-            if (moveLeft) nearChain.swingVel -= 0.003;
-            if (moveRight) nearChain.swingVel += 0.003;
-
-            // Dismount leap
-            if (keys['Space']) {
-              player.isClimbing = false;
-              player.vy = -7.5;
-              player.vx = (moveRight ? 5.5 : (moveLeft ? -5.5 : 0));
-              soundEngine.playJump();
-            }
-          } else {
-            // Normal Horizontal Locomotion
-            const targetSpeed = player.isCrouching ? 1.7 : (player.isRunning ? 4.8 : 3.0);
-            const accel = player.isGrounded ? 0.35 : 0.18;
-
-            if (moveLeft) {
-              player.vx = Math.max(-targetSpeed, player.vx - accel);
-              player.facing = -1;
-            } else if (moveRight) {
-              player.vx = Math.min(targetSpeed, player.vx + accel);
-              player.facing = 1;
-            } else {
-              // Friction
-              player.vx *= player.isGrounded ? 0.72 : 0.94;
-            }
-
-            // Jump
-            if (jumpKey && player.isGrounded && !player.isCrouching) {
+            } else if (jumpKey) {
+              // Jump releases crate and leaps
+              player.grabbedBoxId = null;
               player.vy = -10.6;
               player.isGrounded = false;
               soundEngine.playJump();
+            } else if (crouchKey) {
+              // Crouch lets go of crate
+              player.grabbedBoxId = null;
+            }
+          } else {
+            // Check if player presses or holds E to grab an adjacent crate
+            if ((justPressedInteract || interactKey) && !player.isClimbing) {
+              const adjacentBox = findAdjacentPushable(player, pushablesRef.current);
+              if (adjacentBox) {
+                player.grabbedBoxId = adjacentBox.id;
+                const boyIsOnLeft = player.x + player.w / 2 < adjacentBox.x + adjacentBox.w / 2;
+                player.facing = boyIsOnLeft ? 1 : -1;
+                if (boyIsOnLeft) {
+                  player.x = adjacentBox.x - player.w;
+                } else {
+                  player.x = adjacentBox.x + adjacentBox.w;
+                }
+                player.vx = 0;
+                soundEngine.playCrateDrag();
+              }
+            }
+          }
+          prevInteractKeyRef.current = interactKey;
+
+          // 2. Locomotion & Physics
+          if (player.grabbedBoxId) {
+            // Dedicated heavy dragging locomotion
+            const dragSpeed = 1.7;
+            const dragAccel = 0.28;
+
+            if (moveLeft) {
+              player.vx = Math.max(-dragSpeed, player.vx - dragAccel);
+            } else if (moveRight) {
+              player.vx = Math.min(dragSpeed, player.vx + dragAccel);
+            } else {
+              player.vx *= 0.55;
+              if (Math.abs(player.vx) < 0.05) player.vx = 0;
             }
 
-            // Gravity
+            // Dragging footsteps & crate scraping audio
+            if (Math.abs(player.vx) > 0.1) {
+              player.noiseLevel = Math.max(player.noiseLevel, 0.45);
+              player.animTimer += Math.abs(player.vx) * 0.08;
+              stepCycle += Math.abs(player.vx);
+              if (stepCycle > 26) {
+                stepCycle = 0;
+                soundEngine.playFootstep(false, 'metal');
+              }
+
+              dragSoundTimerRef.current += dt;
+              if (dragSoundTimerRef.current > 170) {
+                dragSoundTimerRef.current = 0;
+                soundEngine.playCrateDrag();
+              }
+            } else {
+              player.noiseLevel = 0.02;
+            }
+
+            // Gravity for player
             player.vy = Math.min(TERMINAL_VELOCITY, player.vy + GRAVITY);
-          }
 
-          // Apply displacement
-          player.x += player.vx;
-          player.y += player.vy;
+            // Vertical displacement for player
+            player.y += player.vy;
 
-          // Resolve collisions with platforms & pushables
-          const { onGround, standingOn } = resolvePlayerCollisions(player, level.platforms, pushablesRef.current);
-          const wasGrounded = player.isGrounded;
-          player.isGrounded = onGround;
+            // Resolve player vertical collisions
+            const { onGround } = resolvePlayerCollisions(player, level.platforms, pushablesRef.current);
+            player.isGrounded = onGround;
 
-          // Landing audio
-          if (!wasGrounded && onGround) {
-            soundEngine.playLand(player.vy > 8);
-          }
+            // updatePushables handles horizontal displacement of both boy and crate as a locked unit
+            updatePushables(pushablesRef.current, player, level.platforms);
+          } else {
+            // Normal crouching / running logic
+            player.isCrouching = crouchKey && player.isGrounded && !player.isClimbing;
+            player.isRunning = !player.isCrouching && (sprintKey || Math.abs(player.vx) > 3.6);
 
-          // Footstep audio on walk cycle
-          if (player.isGrounded && Math.abs(player.vx) > 0.4) {
-            player.animTimer += Math.abs(player.vx) * 0.08;
-            stepCycle += Math.abs(player.vx);
-            if (stepCycle > 26) {
-              stepCycle = 0;
-              soundEngine.playFootstep(player.isCrouching, 'metal');
+            // Calculate noise emitted by boy
+            if (!player.isGrounded) {
+              player.noiseLevel = 0.15;
+            } else if (player.isCrouching) {
+              player.noiseLevel = Math.abs(player.vx) > 0.1 ? 0.06 : 0.01;
+            } else if (player.isRunning) {
+              player.noiseLevel = 0.75;
+            } else if (Math.abs(player.vx) > 0.1) {
+              player.noiseLevel = 0.3;
+            } else {
+              player.noiseLevel = 0.02;
             }
-          }
 
-          // Pushable boxes physics & interaction
-          updatePushables(pushablesRef.current, player, level.platforms, interactKey);
+            // Chain Climbing Check
+            let nearChain: HangingChain | null = null;
+            for (const chain of chainsRef.current) {
+              const chainBottomY = chain.topY + chain.length;
+              if (
+                Math.abs(player.x + player.w / 2 - chain.topX) < 28 &&
+                player.y >= chain.topY - 20 &&
+                player.y <= chainBottomY + 20
+              ) {
+                nearChain = chain;
+                break;
+              }
+            }
+
+            if (nearChain && (jumpKey || crouchKey) && !player.isGrounded) {
+              player.isClimbing = true;
+              player.climbTargetId = nearChain.id;
+            }
+
+            if (player.isClimbing && nearChain) {
+              player.vx = 0;
+              player.vy = 0;
+              player.x = nearChain.topX - player.w / 2;
+
+              if (jumpKey) {
+                player.y -= 2.8;
+                if (player.y < nearChain.topY) player.y = nearChain.topY;
+              } else if (crouchKey) {
+                player.y += 2.8;
+                if (player.y > nearChain.topY + nearChain.length - 10) {
+                  player.isClimbing = false;
+                }
+              }
+
+              // Swing chain with left/right
+              if (moveLeft) nearChain.swingVel -= 0.003;
+              if (moveRight) nearChain.swingVel += 0.003;
+
+              // Dismount leap
+              if (keys['Space']) {
+                player.isClimbing = false;
+                player.vy = -7.5;
+                player.vx = (moveRight ? 5.5 : (moveLeft ? -5.5 : 0));
+                soundEngine.playJump();
+              }
+            } else {
+              // Normal Horizontal Locomotion
+              const targetSpeed = player.isCrouching ? 1.7 : (player.isRunning ? 4.8 : 3.0);
+              const accel = player.isGrounded ? 0.35 : 0.18;
+
+              if (moveLeft) {
+                player.vx = Math.max(-targetSpeed, player.vx - accel);
+                player.facing = -1;
+              } else if (moveRight) {
+                player.vx = Math.min(targetSpeed, player.vx + accel);
+                player.facing = 1;
+              } else {
+                // Friction
+                player.vx *= player.isGrounded ? 0.72 : 0.94;
+              }
+
+              // Jump
+              if (jumpKey && player.isGrounded && !player.isCrouching) {
+                player.vy = -10.6;
+                player.isGrounded = false;
+                soundEngine.playJump();
+              }
+
+              // Gravity
+              player.vy = Math.min(TERMINAL_VELOCITY, player.vy + GRAVITY);
+            }
+
+            // Apply displacement
+            player.x += player.vx;
+            player.y += player.vy;
+
+            // Resolve collisions with platforms & pushables
+            const { onGround } = resolvePlayerCollisions(player, level.platforms, pushablesRef.current);
+            const wasGrounded = player.isGrounded;
+            player.isGrounded = onGround;
+
+            // Landing audio
+            if (!wasGrounded && onGround) {
+              soundEngine.playLand(player.vy > 8);
+            }
+
+            // Footstep audio on walk cycle
+            if (player.isGrounded && Math.abs(player.vx) > 0.4) {
+              player.animTimer += Math.abs(player.vx) * 0.08;
+              stepCycle += Math.abs(player.vx);
+              if (stepCycle > 26) {
+                stepCycle = 0;
+                soundEngine.playFootstep(player.isCrouching, 'metal');
+              }
+            }
+
+            // Pushable boxes physics & interaction
+            updatePushables(pushablesRef.current, player, level.platforms);
+          }
 
           // Interaction prompts & handlers
           let prompt: string | null = null;
@@ -399,13 +502,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           }
 
           // 3. Check Pushable Crate Grab Prompt
-          for (const box of pushablesRef.current) {
-            const isAdjacent =
-              Math.abs(player.y + player.h / 2 - (box.y + box.h / 2)) < box.h &&
-              Math.abs(player.x + player.w / 2 - (box.x + box.w / 2)) < (player.w + box.w) / 2 + 16;
-            if (isAdjacent && !prompt) {
-              prompt = 'Hold Grab to Move Steam Crate';
-            }
+          const adjacentBox = findAdjacentPushable(player, pushablesRef.current);
+          if (player.grabbedBoxId) {
+            prompt = 'Grabbed Steam Crate — [A/D] Drag  •  [E] Let Go  •  [Space] Climb';
+          } else if (adjacentBox && !prompt) {
+            prompt = 'Press [E] to Grab Steam Crate';
           }
 
           onInteractPromptChange(prompt);

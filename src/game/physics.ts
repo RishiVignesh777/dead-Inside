@@ -121,14 +121,108 @@ export function resolvePlayerCollisions(
   return { onGround, standingOn };
 }
 
-// Update pushable physics and player pushing
+// Check if player is close enough to grab a pushable box
+export function findAdjacentPushable(player: Player, pushables: PushableBox[]): PushableBox | null {
+  for (const box of pushables) {
+    // Vertical alignment check: player must be standing alongside the box
+    const vertDiff = Math.abs(player.y + player.h / 2 - (box.y + box.h / 2));
+    if (vertDiff > box.h * 0.95) continue;
+
+    // Player cannot grab while standing directly on top of the crate
+    if (player.y + player.h <= box.y + 4) continue;
+
+    // Horizontal proximity to either side of the crate
+    const distToLeftEdge = Math.abs(player.x + player.w - box.x);
+    const distToRightEdge = Math.abs(player.x - (box.x + box.w));
+
+    if (distToLeftEdge < 26 || distToRightEdge < 26) {
+      return box;
+    }
+  }
+  return null;
+}
+
+// Update pushable physics and player pushing / pulling
 export function updatePushables(
   pushables: PushableBox[],
   player: Player,
-  platforms: Platform[],
-  isGrabbing: boolean
+  platforms: Platform[]
 ) {
+  // 1. Handle Active Grab (Boy & Crate Coupled Movement)
+  if (player.grabbedBoxId) {
+    const grabbedBox = pushables.find((b) => b.id === player.grabbedBoxId);
+    if (!grabbedBox) {
+      player.grabbedBoxId = null;
+    } else {
+      // Check if vertical separation is too great (e.g. falling off a precipice)
+      const vertSeparation = Math.abs(player.y + player.h / 2 - (grabbedBox.y + grabbedBox.h / 2));
+      if (vertSeparation > grabbedBox.h * 1.4) {
+        player.grabbedBoxId = null;
+      } else {
+        const boyIsOnLeft = player.x + player.w / 2 < grabbedBox.x + grabbedBox.w / 2;
+        // Boy always faces toward the crate he is holding
+        player.facing = boyIsOnLeft ? 1 : -1;
+
+        // Apply crate gravity & ground support
+        grabbedBox.vy = Math.min(TERMINAL_VELOCITY, grabbedBox.vy + GRAVITY);
+        grabbedBox.y += grabbedBox.vy;
+
+        for (const plat of platforms) {
+          if (plat.type === 'solid' || plat.type === 'metal_grate') {
+            if (checkAABB(grabbedBox, plat)) {
+              if (grabbedBox.vy >= 0 && (grabbedBox.y + grabbedBox.h - grabbedBox.vy) <= plat.y + 6) {
+                grabbedBox.y = plat.y - grabbedBox.h;
+                grabbedBox.vy = 0;
+              }
+            }
+          }
+        }
+
+        // Horizontal displacement for the coupled boy + crate pair
+        const stepX = player.vx;
+        if (Math.abs(stepX) > 0.0001) {
+          const testPlayerX = player.x + stepX;
+          const testBoxX = boyIsOnLeft ? testPlayerX + player.w : testPlayerX - grabbedBox.w;
+
+          // Check if either the boy or the crate collides with a solid platform horizontally
+          let blocked = false;
+          for (const plat of platforms) {
+            if (plat.type !== 'solid') continue;
+
+            const playerBox = { x: testPlayerX, y: player.y + 2, w: player.w, h: player.h - 6 };
+            const crateBox = { x: testBoxX, y: grabbedBox.y + 2, w: grabbedBox.w, h: grabbedBox.h - 6 };
+
+            if (checkAABB(playerBox, plat) || checkAABB(crateBox, plat)) {
+              blocked = true;
+              break;
+            }
+          }
+
+          if (!blocked) {
+            player.x = testPlayerX;
+            grabbedBox.x = testBoxX;
+            grabbedBox.vx = stepX;
+          } else {
+            player.vx = 0;
+            grabbedBox.vx = 0;
+          }
+        } else {
+          // Stationary: ensure precise zero-gap contact
+          grabbedBox.vx = 0;
+          if (boyIsOnLeft) {
+            grabbedBox.x = player.x + player.w;
+          } else {
+            grabbedBox.x = player.x - grabbedBox.w;
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Handle Free Pushables (Gravity, friction, passive shove)
   for (const box of pushables) {
+    if (box.id === player.grabbedBoxId) continue;
+
     // Gravity
     box.vy = Math.min(TERMINAL_VELOCITY, box.vy + GRAVITY);
     box.y += box.vy;
@@ -137,7 +231,7 @@ export function updatePushables(
     for (const plat of platforms) {
       if (plat.type === 'solid' || plat.type === 'metal_grate') {
         if (checkAABB(box, plat)) {
-          if (box.vy > 0 && box.y + box.h - box.vy <= plat.y + 4) {
+          if (box.vy > 0 && box.y + box.h - box.vy <= plat.y + 6) {
             box.y = plat.y - box.h;
             box.vy = 0;
           } else if (plat.type === 'solid') {
@@ -154,29 +248,20 @@ export function updatePushables(
 
     // Horizontal friction
     box.vx *= 0.82;
+    if (Math.abs(box.vx) < 0.05) box.vx = 0;
     box.x += box.vx;
 
-    // Interaction with player: push or pull
-    const isAdjacent =
-      Math.abs(player.y + player.h / 2 - (box.y + box.h / 2)) < box.h &&
-      Math.abs(player.x + player.w / 2 - (box.x + box.w / 2)) < (player.w + box.w) / 2 + 10;
-
-    if (isAdjacent && isGrabbing) {
-      player.grabbedBoxId = box.id;
-      // When grabbing, boy pulls or pushes the crate along
-      if (Math.abs(player.vx) > 0.1) {
-        box.vx = player.vx * 0.75;
-      }
-    } else if (player.grabbedBoxId === box.id && !isGrabbing) {
-      player.grabbedBoxId = null;
-    } else if (!isGrabbing && checkAABB(player, box)) {
-      // Passive pushing into crate
-      if (player.x + player.w / 2 < box.x + box.w / 2 && player.vx > 0) {
-        box.vx = Math.min(2.2, player.vx * 0.8);
-        player.x = box.x - player.w;
-      } else if (player.x + player.w / 2 > box.x + box.w / 2 && player.vx < 0) {
-        box.vx = Math.max(-2.2, player.vx * 0.8);
-        player.x = box.x + box.w;
+    // Passive boy pushing into crate without grab key
+    if (!player.grabbedBoxId && checkAABB(player, box)) {
+      const isStandingOnTop = player.y + player.h <= box.y + 6;
+      if (!isStandingOnTop) {
+        if (player.x + player.w / 2 < box.x + box.w / 2 && player.vx > 0) {
+          box.vx = Math.min(1.8, player.vx * 0.7);
+          player.x = box.x - player.w;
+        } else if (player.x + player.w / 2 > box.x + box.w / 2 && player.vx < 0) {
+          box.vx = Math.max(-1.8, player.vx * 0.7);
+          player.x = box.x + box.w;
+        }
       }
     }
   }
